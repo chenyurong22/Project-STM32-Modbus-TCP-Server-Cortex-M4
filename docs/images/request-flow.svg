@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="470" viewBox="0 0 1100 470" role="img" aria-labelledby="title desc">
+  <title id="title">Modbus TCP request flow</title>
+  <desc id="desc">A request moves through MBAP validation, PDU dispatch, register access and response generation.</desc>
+  <defs>
+    <marker id="a" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#477284"/></marker>
+  </defs>
+  <rect width="1100" height="470" rx="22" fill="#f6f9fb"/>
+  <text x="550" y="46" text-anchor="middle" font-family="Arial, sans-serif" font-size="28" font-weight="700" fill="#173b4a">Request → response path</text>
+  <g font-family="Arial, sans-serif">
+    <g transform="translate(45 110)"><rect width="175" height="102" rx="18" fill="#e7f5fb" stroke="#4ca5c2" stroke-width="2"/><text x="87.5" y="38" text-anchor="middle" font-size="19" font-weight="700" fill="#173b4a">TCP stream</text><text x="87.5" y="67" text-anchor="middle" font-size="14" fill="#55727e">Fragmented or</text><text x="87.5" y="86" text-anchor="middle" font-size="14" fill="#55727e">coalesced packets</text></g>
+    <g transform="translate(265 110)"><rect width="175" height="102" rx="18" fill="#eef8f3" stroke="#51a982" stroke-width="2"/><text x="87.5" y="38" text-anchor="middle" font-size="19" font-weight="700" fill="#173b4a">MBAP parser</text><text x="87.5" y="67" text-anchor="middle" font-size="14" fill="#55727e">Protocol ID + length</text><text x="87.5" y="86" text-anchor="middle" font-size="14" fill="#55727e">frame validation</text></g>
+    <g transform="translate(485 110)"><rect width="175" height="102" rx="18" fill="#fff5e7" stroke="#d99a3e" stroke-width="2"/><text x="87.5" y="38" text-anchor="middle" font-size="19" font-weight="700" fill="#173b4a">PDU dispatcher</text><text x="87.5" y="67" text-anchor="middle" font-size="14" fill="#55727e">FC and quantity</text><text x="87.5" y="86" text-anchor="middle" font-size="14" fill="#55727e">validation</text></g>
+    <g transform="translate(705 110)"><rect width="175" height="102" rx="18" fill="#f3edff" stroke="#936aca" stroke-width="2"/><text x="87.5" y="38" text-anchor="middle" font-size="19" font-weight="700" fill="#173b4a">Register map</text><text x="87.5" y="67" text-anchor="middle" font-size="14" fill="#55727e">Read / write and</text><text x="87.5" y="86" text-anchor="middle" font-size="14" fill="#55727e">application hooks</text></g>
+    <g transform="translate(925 110)"><rect width="130" height="102" rx="18" fill="#e8f7ef" stroke="#3b9e6f" stroke-width="2"/><text x="65" y="38" text-anchor="middle" font-size="19" font-weight="700" fill="#173b4a">Response</text><text x="65" y="67" text-anchor="middle" font-size="14" fill="#55727e">Normal or</text><text x="65" y="86" text-anchor="middle" font-size="14" fill="#55727e">exception PDU</text></g>
+  </g>
+  <g stroke="#477284" stroke-width="3" marker-end="url(#a)"><path d="M220 161 H257"/><path d="M440 161 H477"/><path d="M660 161 H697"/><path d="M880 161 H917"/></g>
+
+  <g transform="translate(130 295)" font-family="Arial, sans-serif">
+    <rect width="840" height="112" rx="18" fill="#173b4a"/>
+    <text x="420" y="33" text-anchor="middle" fill="#ffffff" font-size="18" font-weight="700">Example Application Data Unit (ADU)</text>
+    <g transform="translate(42 54)">
+      <rect width="130" height="38" fill="#45a8c8"/><rect x="130" width="95" height="38" fill="#5fc0da"/><rect x="225" width="95" height="38" fill="#6fd0ba"/><rect x="320" width="95" height="38" fill="#8bdcc8"/><rect x="415" width="95" height="38" fill="#bf9ae8"/><rect x="510" width="246" height="38" fill="#d7b6f3"/>
+      <g fill="#102f3c" font-size="13" font-weight="700" text-anchor="middle"><text x="65" y="25">Transaction ID</text><text x="177" y="25">Protocol</text><text x="272" y="25">Length</text><text x="367" y="25">Unit ID</text><text x="462" y="25">Function</text><text x="633" y="25">Function data</text></g>
+    </g>
+  </g>
+</svg>

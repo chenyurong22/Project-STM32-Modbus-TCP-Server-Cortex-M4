@@ -1,0 +1,3 @@
+#ifndef TEST_LWIP_TIMEOUTS_H
+#define TEST_LWIP_TIMEOUTS_H
+#endif
