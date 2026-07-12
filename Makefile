@@ -10,6 +10,7 @@ LDFLAGS ?=
 CORE_SOURCES := App/src/modbus.c App/src/modbus_protocol.c
 CORE_OBJECTS := $(CORE_SOURCES:%.c=$(BUILD)/%.o)
 LIBRARY := $(BUILD)/libmodbus_tcp_core.a
+PDU_TEST := $(BUILD)/modbus_pdu_tests
 PROTOCOL_TEST := $(BUILD)/modbus_protocol_tests
 SELFTEST := $(BUILD)/register_selftest
 POSIX_SERVER := $(BUILD)/modbus_posix_server
@@ -35,7 +36,7 @@ demo: $(POSIX_SERVER)
 
 compile-check: $(LWIP_CHECK_OBJECTS)
 
-unit-tests: $(PROTOCOL_TEST) $(SELFTEST)
+unit-tests: $(PDU_TEST) $(PROTOCOL_TEST) $(SELFTEST)
 
 $(BUILD)/%.o: %.c
 	@mkdir -p $(dir $@)
@@ -44,6 +45,10 @@ $(BUILD)/%.o: %.c
 $(LIBRARY): $(CORE_OBJECTS)
 	@mkdir -p $(dir $@)
 	$(AR) rcs $@ $^
+
+$(PDU_TEST): Tests/host/test_modbus_pdu.c $(CORE_SOURCES)
+	@mkdir -p $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $^ $(LDFLAGS) -o $@
 
 $(PROTOCOL_TEST): Tests/host/test_modbus_protocol.c $(CORE_SOURCES)
 	@mkdir -p $(dir $@)
@@ -66,6 +71,7 @@ $(BUILD)/compile-check/platform_stm32.o: App/src/platform_stm32.c
 	$(CC) $(CPPFLAGS) -ITests/mocks $(CFLAGS) -c $< -o $@
 
 test: all
+	$(PDU_TEST)
 	$(PROTOCOL_TEST)
 	$(SELFTEST)
 	$(MAKE) integration-test
