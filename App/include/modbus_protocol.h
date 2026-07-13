@@ -1,6 +1,8 @@
 #ifndef MODBUS_PROTOCOL_H
 #define MODBUS_PROTOCOL_H
 
+#include "modbus_pdu.h"
+
 #include <stddef.h>
 #include <stdint.h>
 
@@ -9,7 +11,6 @@ extern "C" {
 #endif
 
 #define MBTCP_MBAP_HEADER_SIZE 7u
-#define MODBUS_PDU_MAX_SIZE    253u
 #define MODBUS_TCP_ADU_MAX_SIZE (MBTCP_MBAP_HEADER_SIZE + MODBUS_PDU_MAX_SIZE)
 
 /**

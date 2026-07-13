@@ -18,6 +18,9 @@ target_include_directories(modbus_tcp_core PUBLIC App/include)
 add_executable(modbus_posix_server Examples/posix_server.c)
 target_link_libraries(modbus_posix_server PRIVATE modbus_tcp_core)
 
+add_executable(modbus_pdu_tests Tests/host/test_modbus_pdu.c)
+target_link_libraries(modbus_pdu_tests PRIVATE modbus_tcp_core)
+
 add_executable(modbus_protocol_tests Tests/host/test_modbus_protocol.c)
 target_link_libraries(modbus_protocol_tests PRIVATE modbus_tcp_core)
 
@@ -38,5 +41,6 @@ target_include_directories(lwip_transport_compile_check PRIVATE
 )
 
 enable_testing()
+add_test(NAME pdu COMMAND modbus_pdu_tests)
 add_test(NAME protocol COMMAND modbus_protocol_tests)
 add_test(NAME register_map COMMAND register_selftest)

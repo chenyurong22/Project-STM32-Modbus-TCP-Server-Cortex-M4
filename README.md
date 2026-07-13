@@ -19,7 +19,8 @@ make test
 
 `make test` runs:
 
-- C unit tests for the register map and Modbus protocol engine
+- direct C unit tests for the shared Modbus PDU engine
+- C unit tests for the register map and Modbus TCP ADU wrapper
 - the on-device register self-test as a host executable
 - strict `-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Werror` compile checks
 - a real TCP socket integration test against the included POSIX demo server
@@ -32,9 +33,10 @@ A GitHub Actions workflow and a Docker build are included.
   <img src="docs/images/architecture.svg" alt="Layered project architecture" width="95%">
 </p>
 
-The design separates the pure protocol engine from the network transport:
+The design separates the shared PDU engine from transport framing and network I/O:
 
-- `modbus_protocol.c` validates MBAP/PDU fields, dispatches function codes, and creates normal or exception responses.
+- `mb_process_pdu()` dispatches function codes and creates normal or exception response PDUs without TCP-specific framing.
+- `mbtcp_process_adu()` validates MBAP fields, invokes the shared PDU API, and builds the Modbus TCP response ADU.
 - `modbus_tcp.c` handles lwIP TCP callbacks, fragmented/coalesced stream data, client slots, and response transmission.
 - `modbus.c` provides the default fixed-size coils and register banks.
 - weak write hooks connect Modbus writes to relays, PWM, configuration storage, or other application logic.
@@ -60,12 +62,13 @@ Illegal functions, addresses, quantities, byte counts, and values produce standa
 App/
 ├── include/
 │   ├── modbus.h              Register-map API and write hooks
-│   ├── modbus_protocol.h     Portable ADU processor
+│   ├── modbus_pdu.h          Shared transport-independent PDU API
+│   ├── modbus_protocol.h     Backward-compatible Modbus TCP ADU API
 │   ├── modbus_tcp.h          lwIP server API
 │   └── platform_port.h       Compile-time configuration
 └── src/
     ├── modbus.c              Coils and register storage
-    ├── modbus_protocol.c     Transport-independent Modbus engine
+    ├── modbus_protocol.c     Shared PDU engine and TCP ADU wrapper
     ├── modbus_tcp.c          lwIP raw-API transport
     └── platform_stm32.c      HAL tick and optional RTOS locking
 
@@ -92,6 +95,7 @@ make test
 Expected result:
 
 ```text
+modbus PDU tests: PASS
 modbus protocol tests: PASS
 Modbus SelfTest: total=5, passed=5, failed=0, first_err=0
 Modbus TCP smoke test: PASS (127.0.0.1:15020)

@@ -1,5 +1,7 @@
 #include "modbus_protocol.h"
 
+#include "modbus_pdu.h"
+
 #include "modbus.h"
 #include "platform_port.h"
 
@@ -27,11 +29,11 @@ static int range_is_valid(uint16_t first, uint16_t quantity, uint32_t limit)
            (uint32_t)quantity <= (limit - (uint32_t)first);
 }
 
-static uint8_t process_pdu(const uint8_t *pdu,
-                           size_t pdu_len,
-                           uint8_t *response,
-                           size_t response_capacity,
-                           size_t *response_len)
+static uint8_t process_pdu_function(const uint8_t *pdu,
+                                    size_t pdu_len,
+                                    uint8_t *response,
+                                    size_t response_capacity,
+                                    size_t *response_len)
 {
     uint8_t function;
     uint16_t address;
@@ -203,6 +205,40 @@ static uint8_t process_pdu(const uint8_t *pdu,
     }
 }
 
+int mb_process_pdu(const uint8_t *request_pdu,
+                   size_t request_pdu_len,
+                   uint8_t *response_pdu,
+                   size_t response_capacity,
+                   size_t *response_pdu_len)
+{
+    uint8_t exception;
+
+    if (request_pdu == NULL || response_pdu == NULL || response_pdu_len == NULL) {
+        return -1;
+    }
+    *response_pdu_len = 0u;
+
+    if (request_pdu_len == 0u || request_pdu_len > MODBUS_PDU_MAX_SIZE) {
+        return -2;
+    }
+    if (response_capacity < 2u) {
+        return -3;
+    }
+
+    exception = process_pdu_function(request_pdu,
+                                     request_pdu_len,
+                                     response_pdu,
+                                     response_capacity,
+                                     response_pdu_len);
+    if (exception != 0u) {
+        response_pdu[0] = (uint8_t)(request_pdu[0] | 0x80u);
+        response_pdu[1] = exception;
+        *response_pdu_len = 2u;
+    }
+
+    return 0;
+}
+
 int mbtcp_process_adu(const uint8_t *request,
                       size_t request_len,
                       uint8_t *response,
@@ -212,7 +248,7 @@ int mbtcp_process_adu(const uint8_t *request,
     uint16_t length_field;
     size_t expected_len;
     size_t response_pdu_len = 0u;
-    uint8_t exception;
+    int pdu_result;
 
     if (request == NULL || response == NULL || response_len == NULL) {
         return -1;
@@ -236,18 +272,16 @@ int mbtcp_process_adu(const uint8_t *request,
         return -5;
     }
 
-    exception = process_pdu(&request[7],
-                            request_len - MBTCP_MBAP_HEADER_SIZE,
-                            &response[7],
-                            response_capacity - MBTCP_MBAP_HEADER_SIZE,
-                            &response_pdu_len);
+    pdu_result = mb_process_pdu(&request[7],
+                                request_len - MBTCP_MBAP_HEADER_SIZE,
+                                &response[7],
+                                response_capacity - MBTCP_MBAP_HEADER_SIZE,
+                                &response_pdu_len);
+    if (pdu_result < 0) {
+        return -6;
+    }
 
     memcpy(response, request, MBTCP_MBAP_HEADER_SIZE);
-    if (exception != 0u) {
-        response[7] = (uint8_t)(request[7] | 0x80u);
-        response[8] = exception;
-        response_pdu_len = 2u;
-    }
 
     length_field = (uint16_t)(1u + response_pdu_len);
     write_be16(&response[4], length_field);
