@@ -113,16 +113,13 @@ static uint8_t process_pdu_function(const uint8_t *pdu,
             return MB_EX_ILLEGAL_DATA_ADDRESS;
         }
         quantity = read_be16(&pdu[3]);
-        if (quantity == 0xFF00u) {
-            mb_set_coil(address, 1u);
-        } else if (quantity == 0x0000u) {
-            mb_set_coil(address, 0u);
-        } else {
+        if (quantity != 0xFF00u && quantity != 0x0000u) {
             return MB_EX_ILLEGAL_DATA_VALUE;
         }
         if (response_capacity < 5u) {
             return MB_EX_SERVER_FAILURE;
         }
+        mb_set_coil(address, quantity == 0xFF00u ? 1u : 0u);
         memcpy(response, pdu, 5u);
         *response_len = 5u;
         return 0u;
@@ -135,10 +132,10 @@ static uint8_t process_pdu_function(const uint8_t *pdu,
         if (!range_is_valid(address, 1u, MB_MAX_HREGS)) {
             return MB_EX_ILLEGAL_DATA_ADDRESS;
         }
-        mb_set_hreg(address, read_be16(&pdu[3]));
         if (response_capacity < 5u) {
             return MB_EX_SERVER_FAILURE;
         }
+        mb_set_hreg(address, read_be16(&pdu[3]));
         memcpy(response, pdu, 5u);
         *response_len = 5u;
         return 0u;
@@ -159,12 +156,12 @@ static uint8_t process_pdu_function(const uint8_t *pdu,
         if (pdu[5] != byte_count || pdu_len != 6u + byte_count) {
             return MB_EX_ILLEGAL_DATA_VALUE;
         }
+        if (response_capacity < 5u) {
+            return MB_EX_SERVER_FAILURE;
+        }
         for (uint16_t i = 0; i < quantity; ++i) {
             uint8_t value = (uint8_t)(((uint32_t)pdu[6u + (i / 8u)] >> (i % 8u)) & 1u);
             mb_set_coil((uint16_t)(address + i), value);
-        }
-        if (response_capacity < 5u) {
-            return MB_EX_SERVER_FAILURE;
         }
         response[0] = function;
         write_be16(&response[1], address);
@@ -188,11 +185,11 @@ static uint8_t process_pdu_function(const uint8_t *pdu,
         if (pdu[5] != byte_count || pdu_len != 6u + byte_count) {
             return MB_EX_ILLEGAL_DATA_VALUE;
         }
-        for (uint16_t i = 0; i < quantity; ++i) {
-            mb_set_hreg((uint16_t)(address + i), read_be16(&pdu[6u + (2u * i)]));
-        }
         if (response_capacity < 5u) {
             return MB_EX_SERVER_FAILURE;
+        }
+        for (uint16_t i = 0; i < quantity; ++i) {
+            mb_set_hreg((uint16_t)(address + i), read_be16(&pdu[6u + (2u * i)]));
         }
         response[0] = function;
         write_be16(&response[1], address);

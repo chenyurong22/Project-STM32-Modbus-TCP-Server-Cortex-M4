@@ -3,12 +3,17 @@ stm32-modbus-tcp-server/
 ├── App/
 │   ├── include/
 │   │   ├── modbus.h
+│   │   ├── modbus_pdu.h
 │   │   ├── modbus_protocol.h
+│   │   ├── modbus_crc16.h
+│   │   ├── modbus_rtu.h
 │   │   ├── modbus_tcp.h
 │   │   └── platform_port.h
 │   └── src/
 │       ├── modbus.c
 │       ├── modbus_protocol.c
+│       ├── modbus_crc16.c
+│       ├── modbus_rtu.c
 │       ├── modbus_tcp.c
 │       └── platform_stm32.c
 ├── Examples/
@@ -18,7 +23,9 @@ stm32-modbus-tcp-server/
 │   ├── host/
 │   ├── mocks/lwip/
 │   └── stm32/
-├── docs/images/
+├── docs/
+│   ├── images/
+│   └── modbus-rtu-core.md
 ├── tools/
 ├── CMakeLists.txt
 ├── Dockerfile

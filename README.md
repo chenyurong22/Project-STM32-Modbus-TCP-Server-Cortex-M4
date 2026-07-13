@@ -4,9 +4,9 @@
 
 # STM32 Modbus TCP Server for Cortex‑M4
 
-A compact Modbus TCP server written in portable C11, with an STM32/lwIP raw-API transport, a deterministic in-memory register map, strict request validation, and no heap allocation in the request path.
+A compact Modbus implementation written in portable C11, with an STM32/lwIP raw-API TCP transport, a host-tested Modbus RTU ADU core, a deterministic in-memory register map, strict request validation, and no heap allocation in the request path.
 
-The repository builds and tests on a normal Linux/macOS development machine. For deployment, copy the application sources into the STM32CubeMX project generated for your exact MCU, Ethernet PHY, clocks, pins, and memory layout.
+The repository builds and tests on a normal Linux/macOS development machine. The RTU layer currently processes complete serial frames, validates CRC-16, applies slave-address and broadcast rules, and reuses the same PDU engine as TCP. UART reception, T1.5/T3.5 timing, and board-specific CubeMX integration are the next development stage.
 
 ## Build status
 
@@ -19,7 +19,9 @@ make test
 
 `make test` runs:
 
+- Modbus CRC-16 known-vector and corruption tests
 - direct C unit tests for the shared Modbus PDU engine
+- host tests for the Modbus RTU ADU wrapper, addressing, CRC, and broadcasts
 - C unit tests for the register map and Modbus TCP ADU wrapper
 - the on-device register self-test as a host executable
 - strict `-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Werror` compile checks
@@ -37,6 +39,8 @@ The design separates the shared PDU engine from transport framing and network I/
 
 - `mb_process_pdu()` dispatches function codes and creates normal or exception response PDUs without TCP-specific framing.
 - `mbtcp_process_adu()` validates MBAP fields, invokes the shared PDU API, and builds the Modbus TCP response ADU.
+- `mbrtu_process_adu()` validates the RTU address and CRC, applies broadcast rules, invokes the same PDU API, and builds the RTU response ADU.
+- `mb_crc16()` implements the Modbus serial-line CRC-16 with low-byte-first wire order.
 - `modbus_tcp.c` handles lwIP TCP callbacks, fragmented/coalesced stream data, client slots, and response transmission.
 - `modbus.c` provides the default fixed-size coils and register banks.
 - weak write hooks connect Modbus writes to relays, PWM, configuration storage, or other application logic.
@@ -64,11 +68,15 @@ App/
 │   ├── modbus.h              Register-map API and write hooks
 │   ├── modbus_pdu.h          Shared transport-independent PDU API
 │   ├── modbus_protocol.h     Backward-compatible Modbus TCP ADU API
+│   ├── modbus_crc16.h        Portable Modbus serial CRC-16 API
+│   ├── modbus_rtu.h          Complete-frame Modbus RTU ADU API
 │   ├── modbus_tcp.h          lwIP server API
 │   └── platform_port.h       Compile-time configuration
 └── src/
     ├── modbus.c              Coils and register storage
     ├── modbus_protocol.c     Shared PDU engine and TCP ADU wrapper
+    ├── modbus_crc16.c        Table-free Modbus CRC-16 implementation
+    ├── modbus_rtu.c          RTU address/CRC/broadcast ADU wrapper
     ├── modbus_tcp.c          lwIP raw-API transport
     └── platform_stm32.c      HAL tick and optional RTOS locking
 
@@ -95,7 +103,9 @@ make test
 Expected result:
 
 ```text
+modbus CRC-16 tests: PASS
 modbus PDU tests: PASS
+modbus RTU ADU tests: PASS
 modbus protocol tests: PASS
 Modbus SelfTest: total=5, passed=5, failed=0, first_err=0
 Modbus TCP smoke test: PASS (127.0.0.1:15020)
@@ -135,6 +145,56 @@ python3 Tests/host/ci_modbus_smoke.py 127.0.0.1 1502
 
 The smoke test writes and reads holding registers and coils, then verifies an illegal-address exception.
 
+## Use the portable Modbus RTU ADU core
+
+The RTU API operates on one already-complete frame. It does not receive UART bytes or decide when a frame ends; those responsibilities belong to the later byte/timing transport layer.
+
+An RTU request buffer has this layout:
+
+```text
+slave address | function and data PDU | CRC low | CRC high
+```
+
+Include the RTU and CRC sources with the shared register/PDU sources:
+
+```text
+App/src/modbus.c
+App/src/modbus_protocol.c
+App/src/modbus_crc16.c
+App/src/modbus_rtu.c
+```
+
+Example complete-frame processing:
+
+```c
+#include "modbus_rtu.h"
+
+uint8_t response[MODBUS_RTU_ADU_MAX_SIZE];
+size_t response_len = 0u;
+
+int result = mbrtu_process_adu(1u,
+                               request,
+                               request_len,
+                               response,
+                               sizeof(response),
+                               &response_len);
+
+if (result == MBRTU_RESPONSE_READY) {
+    uart_transmit(response, response_len);
+}
+```
+
+Behavior:
+
+- configured slave addresses must be `1` through `247`
+- address `0` is broadcast
+- valid broadcast writes are applied without a response
+- broadcast reads, frames for another slave, invalid CRC frames, and invalid RTU lengths are silently ignored
+- normal and exception responses include a newly generated low-byte-first CRC
+- no dynamic allocation is used
+
+The next stage will add single-byte receive events, a fixed 50 microsecond timing tick, T1.5/T3.5 frame detection, overflow handling, and STM32 UART glue. See [`docs/modbus-rtu-core.md`](docs/modbus-rtu-core.md) for the complete API contract and stage boundary.
+
 ## STM32CubeMX integration
 
 This repository intentionally does not ship fabricated board startup code, a linker script, PHY configuration, or Ethernet pin assignments. Those settings must match the selected STM32 and board.
@@ -152,7 +212,7 @@ In STM32CubeMX or STM32CubeIDE:
 
 ### 2. Add the application sources
 
-Add these files to the generated build:
+For Modbus TCP, add these files to the generated build:
 
 ```text
 App/src/modbus.c
@@ -160,6 +220,15 @@ App/src/modbus_protocol.c
 App/src/modbus_tcp.c
 App/src/platform_stm32.c
 ```
+
+For the host-tested RTU ADU core, also add:
+
+```text
+App/src/modbus_crc16.c
+App/src/modbus_rtu.c
+```
+
+The UART receive/timing adapter is not part of this stage yet.
 
 Add this include directory:
 
@@ -238,7 +307,7 @@ mb_set_dinput(0u, digital_input_state);
 
 Define `WITH_RTOS` when multiple tasks access the map. `platform_stm32.c` then uses a FreeRTOS mutex. For stricter real-time requirements, create the mutex during application initialization and replace the default lazy initialization with your project’s synchronization policy.
 
-## Packet processing
+## TCP packet processing
 
 <p align="center">
   <img src="docs/images/request-flow.svg" alt="Modbus TCP request and response flow" width="95%">
@@ -295,6 +364,7 @@ With the default map sizes, data storage uses approximately:
 - 512 bytes for holding registers
 - 512 bytes for input registers
 - 260 bytes of receive buffering per active lwIP client
+- up to 256 bytes each for caller-owned RTU request and response buffers when maximum-size frames are supported
 
 The exact flash and RAM totals depend on compiler settings, lwIP configuration, HAL, PHY driver, and the chosen STM32.
 
@@ -305,7 +375,7 @@ Modbus TCP provides no authentication, confidentiality, or authorization. Do not
 ## Troubleshooting
 
 **The host build passes, but the STM32 project does not compile.**  
-Check that CubeMX generated lwIP raw-API headers, `App/include` is in the include path, and all four `App/src` files are part of the active target.
+Check that CubeMX generated lwIP raw-API headers, `App/include` is in the include path, and all required `App/src` files are part of the active target.
 
 **The server does not accept connections.**  
 Verify PHY link status, MAC/PHY address configuration, IP address assignment, and that `MX_LWIP_Process()` runs continuously in no-RTOS projects.
