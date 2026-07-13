@@ -154,6 +154,63 @@ static int test_multiple_writes(void)
     return EXIT_SUCCESS;
 }
 
+
+static int test_write_capacity_is_transactional(void)
+{
+    const uint8_t write_coil[] = {0x05u, 0x00u, 0x07u, 0xFFu, 0x00u};
+    const uint8_t write_register[] = {0x06u, 0x00u, 0x09u, 0xCAu, 0xFEu};
+    const uint8_t write_coils[] = {0x0Fu, 0x00u, 0x03u, 0x00u, 0x0Au,
+                                   0x02u, 0x4Du, 0x03u};
+    const uint8_t write_registers[] = {0x10u, 0x00u, 0x0Au, 0x00u, 0x03u,
+                                       0x06u, 0x11u, 0x11u, 0x22u, 0x22u,
+                                       0x33u, 0x33u};
+    const uint8_t *requests[] = {
+        write_coil,
+        write_register,
+        write_coils,
+        write_registers
+    };
+    const size_t request_lengths[] = {
+        sizeof(write_coil),
+        sizeof(write_register),
+        sizeof(write_coils),
+        sizeof(write_registers)
+    };
+    const uint8_t expected_functions[] = {0x85u, 0x86u, 0x8Fu, 0x90u};
+    uint8_t response[2];
+
+    mb_init();
+    mb_set_hreg(9u, 0x1111u);
+    mb_set_hreg(10u, 0xAAAAu);
+    mb_set_hreg(11u, 0xBBBBu);
+    mb_set_hreg(12u, 0xCCCCu);
+
+    for (size_t request_index = 0u;
+         request_index < sizeof(requests) / sizeof(requests[0]);
+         ++request_index) {
+        size_t response_len = 0u;
+
+        CHECK(mb_process_pdu(requests[request_index],
+                             request_lengths[request_index],
+                             response,
+                             sizeof(response),
+                             &response_len) == 0);
+        CHECK(response_len == 2u);
+        CHECK(response[0] == expected_functions[request_index]);
+        CHECK(response[1] == 0x04u);
+    }
+
+    CHECK(mb_get_coil(7u) == 0u);
+    for (uint16_t i = 0u; i < 10u; ++i) {
+        CHECK(mb_get_coil((uint16_t)(3u + i)) == 0u);
+    }
+    CHECK(mb_get_hreg(9u) == 0x1111u);
+    CHECK(mb_get_hreg(10u) == 0xAAAAu);
+    CHECK(mb_get_hreg(11u) == 0xBBBBu);
+    CHECK(mb_get_hreg(12u) == 0xCCCCu);
+    return EXIT_SUCCESS;
+}
+
 static int test_exception_pdus(void)
 {
     const uint8_t illegal_function[] = {0x7Fu};
@@ -280,6 +337,7 @@ int main(void)
     CHECK(test_read_registers() == EXIT_SUCCESS);
     CHECK(test_single_writes() == EXIT_SUCCESS);
     CHECK(test_multiple_writes() == EXIT_SUCCESS);
+    CHECK(test_write_capacity_is_transactional() == EXIT_SUCCESS);
     CHECK(test_exception_pdus() == EXIT_SUCCESS);
     CHECK(test_api_validation() == EXIT_SUCCESS);
     CHECK(test_tcp_wrapper_uses_same_pdu_result() == EXIT_SUCCESS);

@@ -1,0 +1,112 @@
+# Portable Modbus RTU ADU core
+
+This stage adds complete-frame Modbus RTU processing without coupling the protocol core to an MCU, UART driver, timer, DMA engine, RTOS, or physical transceiver.
+
+## Scope
+
+Implemented now:
+
+- Modbus CRC-16 calculation
+- low-byte-first CRC encoding and validation
+- RTU ADU length validation
+- configurable unicast slave address from 1 through 247
+- address 0 broadcast handling
+- silent discard of invalid CRC frames and frames for another slave
+- shared processing of function codes `01`, `02`, `03`, `04`, `05`, `06`, `0F`, and `10`
+- normal and exception response framing
+- host tests for all supported function codes and RTU-specific behavior
+
+Not implemented in this stage:
+
+- UART receive interrupts
+- T1.5 or T3.5 timing
+- frame-boundary detection
+- receive queues or ring buffers
+- STM32 HAL/CubeMX integration
+- RS-485 DE/RE control
+
+## Frame format
+
+A complete RTU ADU is represented as:
+
+```text
++---------+----------------------+---------+----------+
+| Address | Modbus request PDU   | CRC low | CRC high |
++---------+----------------------+---------+----------+
+   1 byte      1 to 253 bytes       1 byte    1 byte
+```
+
+The maximum RTU ADU size is 256 bytes.
+
+## API
+
+```c
+int mbrtu_process_adu(uint8_t slave_address,
+                      const uint8_t *request_adu,
+                      size_t request_adu_len,
+                      uint8_t *response_adu,
+                      size_t response_capacity,
+                      size_t *response_adu_len);
+```
+
+Return values:
+
+- `MBRTU_RESPONSE_READY`: a response frame is ready to transmit
+- `MBRTU_NO_RESPONSE`: the frame was ignored or was a broadcast
+- negative value: invalid API use, invalid configured slave address, or insufficient response capacity
+
+`response_adu_len` is set to zero before frame validation, so callers can use it safely after any non-response result.
+
+## Processing rules
+
+For a unicast request addressed to the configured slave:
+
+1. Validate the RTU frame length.
+2. Validate the slave address.
+3. Validate the received CRC.
+4. Pass the request PDU to `mb_process_pdu()`.
+5. Prefix the configured address.
+6. Append a newly calculated CRC, low byte first.
+
+For a broadcast request at address 0:
+
+- supported write functions are processed
+- no response is generated
+- read functions and unsupported functions are ignored
+- malformed writes do not modify the register map
+
+Frames with addresses 248 through 255 are reserved and are not accepted as configured slave addresses.
+
+## CRC-16
+
+`mb_crc16()` uses the Modbus serial-line algorithm:
+
+- initial value `0xFFFF`
+- reflected polynomial `0xA001`
+- eight right shifts per input byte
+- low-order CRC byte transmitted first
+
+The implementation is table-free to keep ROM use and provenance simple. A future optimized table implementation can be added behind the same API if measured performance requires it.
+
+## Buffer ownership
+
+The caller owns the request and response buffers. The RTU core performs no dynamic allocation and retains no pointer after the function returns.
+
+The request and response buffers should not overlap. A 256-byte response buffer supports every legal Modbus RTU response.
+
+## Next stage
+
+The next layer will turn UART byte events and a 50 microsecond timer tick into complete frames for this API. It will define:
+
+- `mbrtu_on_rx_byte_isr()`
+- `mbrtu_on_50us_tick_isr()`
+- `mbrtu_poll()`
+- T1.5/T3.5 state behavior
+- overflow and recovery behavior
+- completed-frame ownership
+- full-duplex UART transmission callbacks
+
+## Authoritative references
+
+- Modbus Application Protocol Specification V1.1b3: <https://www.modbus.org/file/secure/modbusprotocolspecification.pdf>
+- Modbus Serial Line Protocol and Implementation Guide V1.02: <https://www.modbus.org/file/secure/modbusoverserial.pdf>
