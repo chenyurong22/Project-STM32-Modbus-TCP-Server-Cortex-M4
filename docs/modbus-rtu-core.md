@@ -16,13 +16,19 @@ Implemented now:
 - normal and exception response framing
 - host tests for all supported function codes and RTU-specific behavior
 
-Not implemented in this stage:
+Implemented by the following portable timing stage:
 
-- UART receive interrupts
-- T1.5 or T3.5 timing
-- frame-boundary detection
-- receive queues or ring buffers
-- STM32 HAL/CubeMX integration
+- single-byte receive events
+- fixed 50 microsecond timing events
+- T1.5/T3.5 frame-boundary detection
+- two-buffer receive ownership and explicit overrun reporting
+- overflow and invalid-gap recovery
+- main-loop transmission callbacks
+
+Still not implemented:
+
+- STM32 HAL/CubeMX UART and timer glue
+- physical serial hardware validation
 - RS-485 DE/RE control
 
 ## Frame format
@@ -94,17 +100,16 @@ The caller owns the request and response buffers. The RTU core performs no dynam
 
 The request and response buffers should not overlap. A 256-byte response buffer supports every legal Modbus RTU response.
 
-## Next stage
+## Byte and timing layer
 
-The next layer will turn UART byte events and a 50 microsecond timer tick into complete frames for this API. It will define:
+The portable byte/timing layer is now implemented through:
 
+- `mbrtu_init()`
 - `mbrtu_on_rx_byte_isr()`
 - `mbrtu_on_50us_tick_isr()`
 - `mbrtu_poll()`
-- T1.5/T3.5 state behavior
-- overflow and recovery behavior
-- completed-frame ownership
-- full-duplex UART transmission callbacks
+
+See [`modbus-rtu-timing.md`](modbus-rtu-timing.md) for timing calculations, buffer ownership, ISR/main-loop responsibilities, diagnostics, and the remaining STM32 hardware-integration boundary.
 
 ## Authoritative references
 
