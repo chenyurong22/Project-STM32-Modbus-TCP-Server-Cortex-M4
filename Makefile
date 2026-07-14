@@ -17,6 +17,7 @@ LIBRARY := $(BUILD)/libmodbus_tcp_core.a
 CRC_TEST := $(BUILD)/modbus_crc16_tests
 PDU_TEST := $(BUILD)/modbus_pdu_tests
 RTU_TEST := $(BUILD)/modbus_rtu_tests
+RTU_TIMING_TEST := $(BUILD)/modbus_rtu_timing_tests
 PROTOCOL_TEST := $(BUILD)/modbus_protocol_tests
 SELFTEST := $(BUILD)/register_selftest
 POSIX_SERVER := $(BUILD)/modbus_posix_server
@@ -31,7 +32,7 @@ all: library demo compile-check unit-tests
 help:
 	@printf '%s\n' \
 	  'make              Build the portable library, tests, demo server, and lwIP compile checks' \
-	  'make test         Run CRC, PDU, RTU, TCP, register, and socket tests' \
+	  'make test         Run CRC, PDU, RTU ADU/timing, TCP, register, and socket tests' \
 	  'make ci           Clean and run the complete verification suite' \
 	  'make stm32-help   Show CubeMX integration instructions' \
 	  'make clean        Remove generated build files'
@@ -42,7 +43,7 @@ demo: $(POSIX_SERVER)
 
 compile-check: $(LWIP_CHECK_OBJECTS)
 
-unit-tests: $(CRC_TEST) $(PDU_TEST) $(RTU_TEST) $(PROTOCOL_TEST) $(SELFTEST)
+unit-tests: $(CRC_TEST) $(PDU_TEST) $(RTU_TEST) $(RTU_TIMING_TEST) $(PROTOCOL_TEST) $(SELFTEST)
 
 $(BUILD)/%.o: %.c
 	@mkdir -p $(dir $@)
@@ -61,6 +62,10 @@ $(PDU_TEST): Tests/host/test_modbus_pdu.c $(CORE_SOURCES)
 	$(CC) $(CPPFLAGS) $(CFLAGS) $^ $(LDFLAGS) -o $@
 
 $(RTU_TEST): Tests/host/test_modbus_rtu.c $(CORE_SOURCES)
+	@mkdir -p $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $^ $(LDFLAGS) -o $@
+
+$(RTU_TIMING_TEST): Tests/host/test_modbus_rtu_timing.c $(CORE_SOURCES)
 	@mkdir -p $(dir $@)
 	$(CC) $(CPPFLAGS) $(CFLAGS) $^ $(LDFLAGS) -o $@
 
@@ -88,6 +93,7 @@ test: all
 	$(CRC_TEST)
 	$(PDU_TEST)
 	$(RTU_TEST)
+	$(RTU_TIMING_TEST)
 	$(PROTOCOL_TEST)
 	$(SELFTEST)
 	$(MAKE) integration-test
@@ -110,7 +116,7 @@ stm32-help:
 	  'This repository supplies the application layer, not board-generated HAL/PHY files.' \
 	  'Generate ETH + lwIP (RAW API) with STM32CubeMX, then add:' \
 	  '  App/src/modbus.c App/src/modbus_protocol.c App/src/modbus_tcp.c App/src/platform_stm32.c' \
-	  'For the complete-frame RTU core, also add:' \
+	  'For the RTU ADU and bare-metal byte/timing layer, also add:' \
 	  '  App/src/modbus_crc16.c App/src/modbus_rtu.c' \
 	  'and include path:' \
 	  '  App/include' \

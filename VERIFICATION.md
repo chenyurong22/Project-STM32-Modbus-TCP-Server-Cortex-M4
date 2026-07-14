@@ -1,6 +1,6 @@
 # Verification report
 
-Verification performed on 2026-07-13.
+Verification performed on 2026-07-14.
 
 ## Successful checks
 
@@ -13,10 +13,11 @@ Verification performed on 2026-07-13.
 | Modbus CRC-16 known-vector tests | Pass |
 | Shared PDU unit tests | Pass |
 | Modbus RTU ADU tests | Pass |
+| Modbus RTU 50 us timing/state tests | Pass |
 | Modbus TCP ADU regression tests | Pass |
 | POSIX TCP integration smoke test | Pass |
 | lwIP transport compile check | Pass |
-| CMake configure/build/CTest | Pass |
+| CMake configure/build/CTest (6 tests) | Pass |
 | SVG XML validation and PNG rendering | Pass |
 
 The strict warning set is:
@@ -38,14 +39,20 @@ The host RTU suite verifies:
 - broadcast read and unsupported-function suppression
 - truncated, oversized, minimum-size, and maximum-size frames
 - output-capacity failure without applying a write
+- 9600, 19200, and 115200 timing thresholds
+- exact T1.5 acceptance and T1.5-to-T3.5 rejection
+- T3.5 frame publication and two-buffer handoff
+- pending-frame overrun reporting
+- receive-buffer overflow and recovery
+- main-loop transmit dispatch and transmit-error reporting
 - API argument and configured-address validation
 
 ## Scope
 
 The shared Modbus PDU core, backward-compatible TCP ADU wrapper, portable CRC-16 implementation, complete-frame RTU ADU wrapper, host demonstration, tests, and lwIP-facing application sources are verified.
 
-The RTU byte-receive/timing state machine, STM32 UART adapter, 50 microsecond tick integration, T1.5/T3.5 frame detection, and physical hardware validation are intentionally outside this stage.
+The portable RTU byte-receive/timing state machine, fixed 50 microsecond tick API, T1.5/T3.5 frame detection, buffering, and recovery are host verified. The STM32 UART/timer adapter and physical hardware validation remain outside this stage.
 
 A final STM32 firmware ELF/BIN/HEX cannot be produced without board-specific STM32CubeMX output for the selected MCU and board, including startup code, linker script, HAL/CMSIS, Ethernet MAC/PHY configuration, UART configuration, and generated lwIP port files.
 
-Integration and current RTU scope are documented in `README.md`, `docs/modbus-rtu-core.md`, and `Examples/stm32_cube_main.c`.
+Integration and current RTU scope are documented in `README.md`, `docs/modbus-rtu-core.md`, `docs/modbus-rtu-timing.md`, and `Examples/stm32_cube_main.c`.

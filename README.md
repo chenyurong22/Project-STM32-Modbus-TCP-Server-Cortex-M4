@@ -6,7 +6,7 @@
 
 A compact Modbus implementation written in portable C11, with an STM32/lwIP raw-API TCP transport, a host-tested Modbus RTU ADU core, a deterministic in-memory register map, strict request validation, and no heap allocation in the request path.
 
-The repository builds and tests on a normal Linux/macOS development machine. The RTU layer currently processes complete serial frames, validates CRC-16, applies slave-address and broadcast rules, and reuses the same PDU engine as TCP. UART reception, T1.5/T3.5 timing, and board-specific CubeMX integration are the next development stage.
+The repository builds and tests on a normal Linux/macOS development machine. The RTU layer validates complete frames, provides single-byte receive and fixed 50 microsecond timing entry points, detects T1.5/T3.5 boundaries, and reuses the same PDU engine as TCP. Board-specific UART/timer glue and CubeMX integration remain separate.
 
 ## Build status
 
@@ -22,6 +22,7 @@ make test
 - Modbus CRC-16 known-vector and corruption tests
 - direct C unit tests for the shared Modbus PDU engine
 - host tests for the Modbus RTU ADU wrapper, addressing, CRC, and broadcasts
+- fake-timer tests for T1.5/T3.5, buffering, overflow, recovery, and transmit dispatch
 - C unit tests for the register map and Modbus TCP ADU wrapper
 - the on-device register self-test as a host executable
 - strict `-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Werror` compile checks
@@ -40,6 +41,7 @@ The design separates the shared PDU engine from transport framing and network I/
 - `mb_process_pdu()` dispatches function codes and creates normal or exception response PDUs without TCP-specific framing.
 - `mbtcp_process_adu()` validates MBAP fields, invokes the shared PDU API, and builds the Modbus TCP response ADU.
 - `mbrtu_process_adu()` validates the RTU address and CRC, applies broadcast rules, invokes the same PDU API, and builds the RTU response ADU.
+- `mbrtu_on_rx_byte_isr()` and `mbrtu_on_50us_tick_isr()` assemble frames with minimal interrupt work; `mbrtu_poll()` processes and transmits them from the main loop.
 - `mb_crc16()` implements the Modbus serial-line CRC-16 with low-byte-first wire order.
 - `modbus_tcp.c` handles lwIP TCP callbacks, fragmented/coalesced stream data, client slots, and response transmission.
 - `modbus.c` provides the default fixed-size coils and register banks.
@@ -69,14 +71,14 @@ App/
 │   ├── modbus_pdu.h          Shared transport-independent PDU API
 │   ├── modbus_protocol.h     Backward-compatible Modbus TCP ADU API
 │   ├── modbus_crc16.h        Portable Modbus serial CRC-16 API
-│   ├── modbus_rtu.h          Complete-frame Modbus RTU ADU API
+│   ├── modbus_rtu.h          RTU ADU plus byte/timing server API
 │   ├── modbus_tcp.h          lwIP server API
 │   └── platform_port.h       Compile-time configuration
 └── src/
     ├── modbus.c              Coils and register storage
     ├── modbus_protocol.c     Shared PDU engine and TCP ADU wrapper
     ├── modbus_crc16.c        Table-free Modbus CRC-16 implementation
-    ├── modbus_rtu.c          RTU address/CRC/broadcast ADU wrapper
+    ├── modbus_rtu.c          RTU ADU and bare-metal timing state machine
     ├── modbus_tcp.c          lwIP raw-API transport
     └── platform_stm32.c      HAL tick and optional RTOS locking
 
@@ -106,6 +108,7 @@ Expected result:
 modbus CRC-16 tests: PASS
 modbus PDU tests: PASS
 modbus RTU ADU tests: PASS
+modbus RTU timing tests: PASS
 modbus protocol tests: PASS
 Modbus SelfTest: total=5, passed=5, failed=0, first_err=0
 Modbus TCP smoke test: PASS (127.0.0.1:15020)
@@ -147,7 +150,7 @@ The smoke test writes and reads holding registers and coils, then verifies an il
 
 ## Use the portable Modbus RTU ADU core
 
-The RTU API operates on one already-complete frame. It does not receive UART bytes or decide when a frame ends; those responsibilities belong to the later byte/timing transport layer.
+The complete-frame RTU API can be used directly, or the portable bare-metal layer can turn UART byte events and a fixed 50 microsecond tick into complete frames.
 
 An RTU request buffer has this layout:
 
@@ -193,7 +196,39 @@ Behavior:
 - normal and exception responses include a newly generated low-byte-first CRC
 - no dynamic allocation is used
 
-The next stage will add single-byte receive events, a fixed 50 microsecond timing tick, T1.5/T3.5 frame detection, overflow handling, and STM32 UART glue. See [`docs/modbus-rtu-core.md`](docs/modbus-rtu-core.md) for the complete API contract and stage boundary.
+The byte/timing API adds single-byte receive events, a fixed 50 microsecond tick, T1.5/T3.5 frame detection, two-buffer ownership, overflow recovery, and main-loop transmission. See [`docs/modbus-rtu-timing.md`](docs/modbus-rtu-timing.md) for the complete contract and STM32 integration boundary.
+
+### Bare-metal byte and timing example
+
+```c
+static mbrtu_context_t rtu;
+static uint8_t rx_a[MODBUS_RTU_ADU_MAX_SIZE];
+static uint8_t rx_b[MODBUS_RTU_ADU_MAX_SIZE];
+static uint8_t response[MODBUS_RTU_ADU_MAX_SIZE];
+
+const mbrtu_config_t config = {
+    .slave_address = 1u,
+    .baud_rate = 19200u,
+    .data_bits = 8u,
+    .parity_bits = 1u,
+    .stop_bits = 1u,
+    .receive_buffer_a = rx_a,
+    .receive_buffer_b = rx_b,
+    .receive_buffer_capacity = sizeof(rx_a),
+    .response_buffer = response,
+    .response_buffer_capacity = sizeof(response),
+    .transmit = uart_transmit,
+    .user_context = NULL
+};
+
+(void)mbrtu_init(&rtu, &config);
+```
+
+Call `mbrtu_on_rx_byte_isr()` for each received byte, call `mbrtu_on_50us_tick_isr()` every 50 microseconds, and call `mbrtu_poll()` regularly from the main loop. CRC calculation, function dispatch, application write hooks, and response transmission never run from the receive or timing ISR.
+
+<p align="center">
+  <img src="docs/images/rtu-timing.svg" alt="Modbus RTU T1.5 and T3.5 timing" width="96%">
+</p>
 
 ## STM32CubeMX integration
 
@@ -228,7 +263,7 @@ App/src/modbus_crc16.c
 App/src/modbus_rtu.c
 ```
 
-The UART receive/timing adapter is not part of this stage yet.
+The portable receive/timing state machine is included. The STM32 UART interrupt, timer/SysTick setup, and HAL time-base preservation remain board-specific.
 
 Add this include directory:
 

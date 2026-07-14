@@ -25,7 +25,8 @@ stm32-modbus-tcp-server/
 │   └── stm32/
 ├── docs/
 │   ├── images/
-│   └── modbus-rtu-core.md
+│   ├── modbus-rtu-core.md
+│   └── modbus-rtu-timing.md
 ├── tools/
 ├── CMakeLists.txt
 ├── Dockerfile
