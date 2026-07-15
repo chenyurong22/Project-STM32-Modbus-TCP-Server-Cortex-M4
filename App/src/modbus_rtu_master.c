@@ -1,0 +1,637 @@
+#include "modbus_rtu_master.h"
+
+#include "modbus_crc16.h"
+
+#include <string.h>
+
+#define MBRTUM_FIXED_REQUEST_ADU_SIZE 8u
+#define MBRTUM_WRITE_ACK_ADU_SIZE 8u
+#define MBRTUM_EXCEPTION_ADU_SIZE 5u
+
+static uint16_t read_be16(const uint8_t *p)
+{
+    return (uint16_t)(((uint16_t)p[0] << 8u) | (uint16_t)p[1]);
+}
+
+static void write_be16(uint8_t *p, uint16_t value)
+{
+    p[0] = (uint8_t)(value >> 8u);
+    p[1] = (uint8_t)value;
+}
+
+static void clear_request(mbrtum_request_t *request)
+{
+    if (request != NULL) {
+        memset(request, 0, sizeof(*request));
+    }
+}
+
+static void clear_response(mbrtum_response_t *response)
+{
+    if (response != NULL) {
+        response->function = 0u;
+        response->exception_code = 0u;
+        response->data = NULL;
+        response->data_length = 0u;
+    }
+}
+
+static int unicast_address_is_valid(uint8_t slave_address)
+{
+    return slave_address >= MODBUS_RTU_ADDRESS_MIN &&
+           slave_address <= MODBUS_RTU_ADDRESS_MAX;
+}
+
+static int write_address_is_valid(uint8_t slave_address)
+{
+    return slave_address == MODBUS_RTU_BROADCAST_ADDRESS ||
+           unicast_address_is_valid(slave_address);
+}
+
+static int address_range_is_valid(uint16_t start_address, uint16_t quantity)
+{
+    return quantity > 0u &&
+           (uint32_t)start_address + (uint32_t)quantity <= 65536u;
+}
+
+static int packed_bit_padding_is_zero(const uint8_t *data,
+                                      size_t data_length,
+                                      uint16_t quantity)
+{
+    uint8_t remainder = (uint8_t)(quantity % 8u);
+
+    if (remainder == 0u) {
+        return 1;
+    }
+    if (data == NULL || data_length == 0u) {
+        return 0;
+    }
+
+    {
+        uint8_t valid_mask = (uint8_t)((1u << remainder) - 1u);
+        uint8_t padding_mask = (uint8_t)~valid_mask;
+
+        return (data[data_length - 1u] & padding_mask) == 0u;
+    }
+}
+
+static void finish_request(mbrtum_request_t *request,
+                           uint8_t slave_address,
+                           uint8_t function,
+                           uint16_t start_address,
+                           uint16_t quantity,
+                           uint16_t value)
+{
+    request->slave_address = slave_address;
+    request->function = function;
+    request->start_address = start_address;
+    request->quantity = quantity;
+    request->value = value;
+    request->expects_response = (uint8_t)(
+        slave_address == MODBUS_RTU_BROADCAST_ADDRESS ? 0u : 1u);
+}
+
+static size_t append_crc(uint8_t *adu, size_t length_without_crc)
+{
+    uint16_t crc = mb_crc16(adu, length_without_crc);
+
+    adu[length_without_crc] = (uint8_t)crc;
+    adu[length_without_crc + 1u] = (uint8_t)(crc >> 8u);
+    return length_without_crc + MODBUS_RTU_CRC_SIZE;
+}
+
+static int build_fixed_request(uint8_t slave_address,
+                               uint8_t function,
+                               uint16_t first,
+                               uint16_t second,
+                               mbrtum_request_t *request,
+                               uint16_t request_quantity,
+                               uint16_t request_value,
+                               uint8_t *request_adu,
+                               size_t request_adu_capacity,
+                               size_t *request_adu_length)
+{
+    if (request == NULL || request_adu == NULL || request_adu_length == NULL) {
+        return MBRTUM_ERROR_ARGUMENT;
+    }
+    *request_adu_length = 0u;
+    clear_request(request);
+
+    if (request_adu_capacity < MBRTUM_FIXED_REQUEST_ADU_SIZE) {
+        return MBRTUM_ERROR_CAPACITY;
+    }
+
+    request_adu[0] = slave_address;
+    request_adu[1] = function;
+    write_be16(&request_adu[2], first);
+    write_be16(&request_adu[4], second);
+    *request_adu_length = append_crc(request_adu, 6u);
+    finish_request(request,
+                   slave_address,
+                   function,
+                   first,
+                   request_quantity,
+                   request_value);
+    return MBRTUM_OK;
+}
+
+int mbrtum_build_read_bits_request(uint8_t slave_address,
+                                   uint8_t function,
+                                   uint16_t start_address,
+                                   uint16_t quantity,
+                                   mbrtum_request_t *request,
+                                   uint8_t *request_adu,
+                                   size_t request_adu_capacity,
+                                   size_t *request_adu_length)
+{
+    if (request_adu_length != NULL) {
+        *request_adu_length = 0u;
+    }
+    clear_request(request);
+
+    if (request == NULL || request_adu == NULL || request_adu_length == NULL) {
+        return MBRTUM_ERROR_ARGUMENT;
+    }
+    if (!unicast_address_is_valid(slave_address)) {
+        return MBRTUM_ERROR_SLAVE_ADDRESS;
+    }
+    if (function != MBRTUM_FC_READ_COILS &&
+        function != MBRTUM_FC_READ_DISCRETE_INPUTS) {
+        return MBRTUM_ERROR_FUNCTION;
+    }
+    if (quantity == 0u || quantity > 2000u ||
+        !address_range_is_valid(start_address, quantity)) {
+        return MBRTUM_ERROR_QUANTITY;
+    }
+
+    return build_fixed_request(slave_address,
+                               function,
+                               start_address,
+                               quantity,
+                               request,
+                               quantity,
+                               0u,
+                               request_adu,
+                               request_adu_capacity,
+                               request_adu_length);
+}
+
+int mbrtum_build_read_registers_request(uint8_t slave_address,
+                                        uint8_t function,
+                                        uint16_t start_address,
+                                        uint16_t quantity,
+                                        mbrtum_request_t *request,
+                                        uint8_t *request_adu,
+                                        size_t request_adu_capacity,
+                                        size_t *request_adu_length)
+{
+    if (request_adu_length != NULL) {
+        *request_adu_length = 0u;
+    }
+    clear_request(request);
+
+    if (request == NULL || request_adu == NULL || request_adu_length == NULL) {
+        return MBRTUM_ERROR_ARGUMENT;
+    }
+    if (!unicast_address_is_valid(slave_address)) {
+        return MBRTUM_ERROR_SLAVE_ADDRESS;
+    }
+    if (function != MBRTUM_FC_READ_HOLDING_REGISTERS &&
+        function != MBRTUM_FC_READ_INPUT_REGISTERS) {
+        return MBRTUM_ERROR_FUNCTION;
+    }
+    if (quantity == 0u || quantity > 125u ||
+        !address_range_is_valid(start_address, quantity)) {
+        return MBRTUM_ERROR_QUANTITY;
+    }
+
+    return build_fixed_request(slave_address,
+                               function,
+                               start_address,
+                               quantity,
+                               request,
+                               quantity,
+                               0u,
+                               request_adu,
+                               request_adu_capacity,
+                               request_adu_length);
+}
+
+int mbrtum_build_write_single_coil_request(uint8_t slave_address,
+                                           uint16_t address,
+                                           uint8_t value,
+                                           mbrtum_request_t *request,
+                                           uint8_t *request_adu,
+                                           size_t request_adu_capacity,
+                                           size_t *request_adu_length)
+{
+    uint16_t encoded_value;
+
+    if (request_adu_length != NULL) {
+        *request_adu_length = 0u;
+    }
+    clear_request(request);
+
+    if (request == NULL || request_adu == NULL || request_adu_length == NULL) {
+        return MBRTUM_ERROR_ARGUMENT;
+    }
+    if (!write_address_is_valid(slave_address)) {
+        return MBRTUM_ERROR_SLAVE_ADDRESS;
+    }
+    if (value > 1u) {
+        return MBRTUM_ERROR_VALUE;
+    }
+
+    encoded_value = value == 0u ? 0x0000u : 0xFF00u;
+    return build_fixed_request(slave_address,
+                               MBRTUM_FC_WRITE_SINGLE_COIL,
+                               address,
+                               encoded_value,
+                               request,
+                               1u,
+                               encoded_value,
+                               request_adu,
+                               request_adu_capacity,
+                               request_adu_length);
+}
+
+int mbrtum_build_write_single_register_request(uint8_t slave_address,
+                                               uint16_t address,
+                                               uint16_t value,
+                                               mbrtum_request_t *request,
+                                               uint8_t *request_adu,
+                                               size_t request_adu_capacity,
+                                               size_t *request_adu_length)
+{
+    if (request_adu_length != NULL) {
+        *request_adu_length = 0u;
+    }
+    clear_request(request);
+
+    if (request == NULL || request_adu == NULL || request_adu_length == NULL) {
+        return MBRTUM_ERROR_ARGUMENT;
+    }
+    if (!write_address_is_valid(slave_address)) {
+        return MBRTUM_ERROR_SLAVE_ADDRESS;
+    }
+
+    return build_fixed_request(slave_address,
+                               MBRTUM_FC_WRITE_SINGLE_REGISTER,
+                               address,
+                               value,
+                               request,
+                               1u,
+                               value,
+                               request_adu,
+                               request_adu_capacity,
+                               request_adu_length);
+}
+
+int mbrtum_build_write_multiple_coils_request(
+    uint8_t slave_address,
+    uint16_t start_address,
+    uint16_t quantity,
+    const uint8_t *packed_values,
+    mbrtum_request_t *request,
+    uint8_t *request_adu,
+    size_t request_adu_capacity,
+    size_t *request_adu_length)
+{
+    size_t byte_count;
+    size_t length_without_crc;
+    uint8_t remainder;
+
+    if (request_adu_length != NULL) {
+        *request_adu_length = 0u;
+    }
+    clear_request(request);
+
+    if (packed_values == NULL || request == NULL || request_adu == NULL ||
+        request_adu_length == NULL) {
+        return MBRTUM_ERROR_ARGUMENT;
+    }
+    if (!write_address_is_valid(slave_address)) {
+        return MBRTUM_ERROR_SLAVE_ADDRESS;
+    }
+    if (quantity == 0u || quantity > 1968u ||
+        !address_range_is_valid(start_address, quantity)) {
+        return MBRTUM_ERROR_QUANTITY;
+    }
+
+    byte_count = ((size_t)quantity + 7u) / 8u;
+    length_without_crc = 7u + byte_count;
+    if (request_adu_capacity < length_without_crc + MODBUS_RTU_CRC_SIZE) {
+        return MBRTUM_ERROR_CAPACITY;
+    }
+
+    request_adu[0] = slave_address;
+    request_adu[1] = MBRTUM_FC_WRITE_MULTIPLE_COILS;
+    write_be16(&request_adu[2], start_address);
+    write_be16(&request_adu[4], quantity);
+    request_adu[6] = (uint8_t)byte_count;
+    memcpy(&request_adu[7], packed_values, byte_count);
+
+    remainder = (uint8_t)(quantity % 8u);
+    if (remainder != 0u) {
+        uint8_t mask = (uint8_t)((1u << remainder) - 1u);
+        request_adu[7u + byte_count - 1u] &= mask;
+    }
+
+    *request_adu_length = append_crc(request_adu, length_without_crc);
+    finish_request(request,
+                   slave_address,
+                   MBRTUM_FC_WRITE_MULTIPLE_COILS,
+                   start_address,
+                   quantity,
+                   0u);
+    return MBRTUM_OK;
+}
+
+int mbrtum_build_write_multiple_registers_request(
+    uint8_t slave_address,
+    uint16_t start_address,
+    uint16_t quantity,
+    const uint16_t *values,
+    mbrtum_request_t *request,
+    uint8_t *request_adu,
+    size_t request_adu_capacity,
+    size_t *request_adu_length)
+{
+    size_t byte_count;
+    size_t length_without_crc;
+
+    if (request_adu_length != NULL) {
+        *request_adu_length = 0u;
+    }
+    clear_request(request);
+
+    if (values == NULL || request == NULL || request_adu == NULL ||
+        request_adu_length == NULL) {
+        return MBRTUM_ERROR_ARGUMENT;
+    }
+    if (!write_address_is_valid(slave_address)) {
+        return MBRTUM_ERROR_SLAVE_ADDRESS;
+    }
+    if (quantity == 0u || quantity > 123u ||
+        !address_range_is_valid(start_address, quantity)) {
+        return MBRTUM_ERROR_QUANTITY;
+    }
+
+    byte_count = (size_t)quantity * 2u;
+    length_without_crc = 7u + byte_count;
+    if (request_adu_capacity < length_without_crc + MODBUS_RTU_CRC_SIZE) {
+        return MBRTUM_ERROR_CAPACITY;
+    }
+
+    request_adu[0] = slave_address;
+    request_adu[1] = MBRTUM_FC_WRITE_MULTIPLE_REGISTERS;
+    write_be16(&request_adu[2], start_address);
+    write_be16(&request_adu[4], quantity);
+    request_adu[6] = (uint8_t)byte_count;
+    for (uint16_t i = 0u; i < quantity; ++i) {
+        write_be16(&request_adu[7u + ((size_t)i * 2u)], values[i]);
+    }
+
+    *request_adu_length = append_crc(request_adu, length_without_crc);
+    finish_request(request,
+                   slave_address,
+                   MBRTUM_FC_WRITE_MULTIPLE_REGISTERS,
+                   start_address,
+                   quantity,
+                   0u);
+    return MBRTUM_OK;
+}
+
+static int validate_request_descriptor(const mbrtum_request_t *request)
+{
+    if (request->expects_response == 0u) {
+        return MBRTUM_ERROR_RESPONSE_NOT_EXPECTED;
+    }
+    if (request->expects_response != 1u) {
+        return MBRTUM_ERROR_ARGUMENT;
+    }
+    if (!unicast_address_is_valid(request->slave_address)) {
+        return MBRTUM_ERROR_SLAVE_ADDRESS;
+    }
+
+    switch (request->function) {
+    case MBRTUM_FC_READ_COILS:
+    case MBRTUM_FC_READ_DISCRETE_INPUTS:
+        if (request->quantity == 0u || request->quantity > 2000u ||
+            !address_range_is_valid(request->start_address, request->quantity)) {
+            return MBRTUM_ERROR_QUANTITY;
+        }
+        break;
+    case MBRTUM_FC_READ_HOLDING_REGISTERS:
+    case MBRTUM_FC_READ_INPUT_REGISTERS:
+        if (request->quantity == 0u || request->quantity > 125u ||
+            !address_range_is_valid(request->start_address, request->quantity)) {
+            return MBRTUM_ERROR_QUANTITY;
+        }
+        break;
+    case MBRTUM_FC_WRITE_SINGLE_COIL:
+        if (request->quantity != 1u ||
+            (request->value != 0x0000u && request->value != 0xFF00u)) {
+            return MBRTUM_ERROR_VALUE;
+        }
+        break;
+    case MBRTUM_FC_WRITE_SINGLE_REGISTER:
+        if (request->quantity != 1u) {
+            return MBRTUM_ERROR_QUANTITY;
+        }
+        break;
+    case MBRTUM_FC_WRITE_MULTIPLE_COILS:
+        if (request->quantity == 0u || request->quantity > 1968u ||
+            !address_range_is_valid(request->start_address, request->quantity)) {
+            return MBRTUM_ERROR_QUANTITY;
+        }
+        break;
+    case MBRTUM_FC_WRITE_MULTIPLE_REGISTERS:
+        if (request->quantity == 0u || request->quantity > 123u ||
+            !address_range_is_valid(request->start_address, request->quantity)) {
+            return MBRTUM_ERROR_QUANTITY;
+        }
+        break;
+    default:
+        return MBRTUM_ERROR_FUNCTION;
+    }
+
+    return MBRTUM_OK;
+}
+
+int mbrtum_process_response(const mbrtum_request_t *request,
+                            const uint8_t *response_adu,
+                            size_t response_adu_length,
+                            mbrtum_response_t *response)
+{
+    uint8_t response_function;
+    uint8_t exception_function;
+    int request_result;
+
+    clear_response(response);
+    if (request == NULL || response_adu == NULL || response == NULL) {
+        return MBRTUM_ERROR_ARGUMENT;
+    }
+
+    request_result = validate_request_descriptor(request);
+    if (request_result != MBRTUM_OK) {
+        return request_result;
+    }
+    if (response_adu_length < MBRTUM_EXCEPTION_ADU_SIZE ||
+        response_adu_length > MODBUS_RTU_ADU_MAX_SIZE) {
+        return MBRTUM_ERROR_RESPONSE_LENGTH;
+    }
+    if (mb_crc16(response_adu, response_adu_length) != 0u) {
+        return MBRTUM_ERROR_CRC;
+    }
+    if (response_adu[0] != request->slave_address) {
+        return MBRTUM_ERROR_ADDRESS_MISMATCH;
+    }
+
+    response_function = response_adu[1];
+    exception_function = (uint8_t)(request->function | 0x80u);
+    if (response_function == exception_function) {
+        if (response_adu_length != MBRTUM_EXCEPTION_ADU_SIZE) {
+            return MBRTUM_ERROR_RESPONSE_LENGTH;
+        }
+        if (response_adu[2] == 0u) {
+            return MBRTUM_ERROR_MALFORMED_RESPONSE;
+        }
+        response->function = request->function;
+        response->exception_code = response_adu[2];
+        return MBRTUM_EXCEPTION_RESPONSE;
+    }
+    if (response_function != request->function) {
+        return MBRTUM_ERROR_FUNCTION_MISMATCH;
+    }
+
+    switch (request->function) {
+    case MBRTUM_FC_READ_COILS:
+    case MBRTUM_FC_READ_DISCRETE_INPUTS: {
+        size_t expected_byte_count = ((size_t)request->quantity + 7u) / 8u;
+        size_t expected_length = 5u + expected_byte_count;
+
+        if (response_adu_length != expected_length) {
+            return MBRTUM_ERROR_RESPONSE_LENGTH;
+        }
+        if ((size_t)response_adu[2] != expected_byte_count) {
+            return MBRTUM_ERROR_MALFORMED_RESPONSE;
+        }
+        if (!packed_bit_padding_is_zero(&response_adu[3],
+                                        expected_byte_count,
+                                        request->quantity)) {
+            return MBRTUM_ERROR_MALFORMED_RESPONSE;
+        }
+        response->function = request->function;
+        response->data = &response_adu[3];
+        response->data_length = expected_byte_count;
+        return MBRTUM_OK;
+    }
+
+    case MBRTUM_FC_READ_HOLDING_REGISTERS:
+    case MBRTUM_FC_READ_INPUT_REGISTERS: {
+        size_t expected_byte_count = (size_t)request->quantity * 2u;
+        size_t expected_length = 5u + expected_byte_count;
+
+        if (response_adu_length != expected_length) {
+            return MBRTUM_ERROR_RESPONSE_LENGTH;
+        }
+        if ((size_t)response_adu[2] != expected_byte_count) {
+            return MBRTUM_ERROR_MALFORMED_RESPONSE;
+        }
+        response->function = request->function;
+        response->data = &response_adu[3];
+        response->data_length = expected_byte_count;
+        return MBRTUM_OK;
+    }
+
+    case MBRTUM_FC_WRITE_SINGLE_COIL:
+    case MBRTUM_FC_WRITE_SINGLE_REGISTER:
+        if (response_adu_length != MBRTUM_WRITE_ACK_ADU_SIZE) {
+            return MBRTUM_ERROR_RESPONSE_LENGTH;
+        }
+        if (read_be16(&response_adu[2]) != request->start_address ||
+            read_be16(&response_adu[4]) != request->value) {
+            return MBRTUM_ERROR_ACKNOWLEDGEMENT_MISMATCH;
+        }
+        response->function = request->function;
+        return MBRTUM_OK;
+
+    case MBRTUM_FC_WRITE_MULTIPLE_COILS:
+    case MBRTUM_FC_WRITE_MULTIPLE_REGISTERS:
+        if (response_adu_length != MBRTUM_WRITE_ACK_ADU_SIZE) {
+            return MBRTUM_ERROR_RESPONSE_LENGTH;
+        }
+        if (read_be16(&response_adu[2]) != request->start_address ||
+            read_be16(&response_adu[4]) != request->quantity) {
+            return MBRTUM_ERROR_ACKNOWLEDGEMENT_MISMATCH;
+        }
+        response->function = request->function;
+        return MBRTUM_OK;
+
+    default:
+        return MBRTUM_ERROR_FUNCTION;
+    }
+}
+
+int mbrtum_get_bit(const mbrtum_request_t *request,
+                   const mbrtum_response_t *response,
+                   uint16_t index,
+                   uint8_t *value)
+{
+    size_t byte_index;
+
+    if (request == NULL || response == NULL || value == NULL) {
+        return MBRTUM_ERROR_ARGUMENT;
+    }
+    if (request->function != MBRTUM_FC_READ_COILS &&
+        request->function != MBRTUM_FC_READ_DISCRETE_INPUTS) {
+        return MBRTUM_ERROR_FUNCTION;
+    }
+    if (response->exception_code != 0u ||
+        response->function != request->function || response->data == NULL) {
+        return MBRTUM_ERROR_MALFORMED_RESPONSE;
+    }
+    if (index >= request->quantity) {
+        return MBRTUM_ERROR_INDEX;
+    }
+
+    byte_index = (size_t)index / 8u;
+    if (byte_index >= response->data_length) {
+        return MBRTUM_ERROR_MALFORMED_RESPONSE;
+    }
+
+    *value = (uint8_t)((response->data[byte_index] >> (index % 8u)) & 1u);
+    return MBRTUM_OK;
+}
+
+int mbrtum_get_register(const mbrtum_request_t *request,
+                        const mbrtum_response_t *response,
+                        uint16_t index,
+                        uint16_t *value)
+{
+    size_t byte_index;
+
+    if (request == NULL || response == NULL || value == NULL) {
+        return MBRTUM_ERROR_ARGUMENT;
+    }
+    if (request->function != MBRTUM_FC_READ_HOLDING_REGISTERS &&
+        request->function != MBRTUM_FC_READ_INPUT_REGISTERS) {
+        return MBRTUM_ERROR_FUNCTION;
+    }
+    if (response->exception_code != 0u ||
+        response->function != request->function || response->data == NULL) {
+        return MBRTUM_ERROR_MALFORMED_RESPONSE;
+    }
+    if (index >= request->quantity) {
+        return MBRTUM_ERROR_INDEX;
+    }
+
+    byte_index = (size_t)index * 2u;
+    if (byte_index + 1u >= response->data_length) {
+        return MBRTUM_ERROR_MALFORMED_RESPONSE;
+    }
+
+    *value = read_be16(&response->data[byte_index]);
+    return MBRTUM_OK;
+}

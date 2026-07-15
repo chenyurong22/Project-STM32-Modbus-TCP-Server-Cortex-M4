@@ -4,9 +4,9 @@
 
 # STM32 Modbus TCP Server for Cortex‑M4
 
-A compact Modbus implementation written in portable C11, with an STM32/lwIP raw-API TCP transport, a host-tested Modbus RTU ADU core, a deterministic in-memory register map, strict request validation, and no heap allocation in the request path.
+A compact Modbus implementation written in portable C11, with an STM32/lwIP raw-API TCP transport, host-tested Modbus RTU slave and master ADU cores, a deterministic in-memory register map, strict request validation, and no heap allocation in the request path.
 
-The repository builds and tests on a normal Linux/macOS development machine. The RTU layer validates complete frames, provides single-byte receive and fixed 50 microsecond timing entry points, detects T1.5/T3.5 boundaries, and reuses the same PDU engine as TCP. Board-specific UART/timer glue and CubeMX integration remain separate.
+The repository builds and tests on a normal Linux/macOS development machine. The RTU slave layer validates complete frames, provides single-byte receive and fixed 50 microsecond timing entry points, detects T1.5/T3.5 boundaries, and reuses the same PDU engine as TCP. The separate RTU master core builds complete requests and validates complete responses without depending on UART, timeout, retry, or RS-485 hardware. Board-specific UART/timer glue and CubeMX integration remain separate.
 
 ## Build status
 
@@ -22,6 +22,7 @@ make test
 - Modbus CRC-16 known-vector and corruption tests
 - direct C unit tests for the shared Modbus PDU engine
 - host tests for the Modbus RTU ADU wrapper, addressing, CRC, and broadcasts
+- host tests for RTU master request builders, response validation, exceptions, and decoding
 - fake-timer tests for T1.5/T3.5, buffering, overflow, recovery, and transmit dispatch
 - C unit tests for the register map and Modbus TCP ADU wrapper
 - the on-device register self-test as a host executable
@@ -41,6 +42,7 @@ The design separates the shared PDU engine from transport framing and network I/
 - `mb_process_pdu()` dispatches function codes and creates normal or exception response PDUs without TCP-specific framing.
 - `mbtcp_process_adu()` validates MBAP fields, invokes the shared PDU API, and builds the Modbus TCP response ADU.
 - `mbrtu_process_adu()` validates the RTU address and CRC, applies broadcast rules, invokes the same PDU API, and builds the RTU response ADU.
+- `mbrtum_build_*_request()` creates complete RTU master requests, while `mbrtum_process_response()` validates matching complete responses and Modbus exceptions.
 - `mbrtu_on_rx_byte_isr()` and `mbrtu_on_50us_tick_isr()` assemble frames with minimal interrupt work; `mbrtu_poll()` processes and transmits them from the main loop.
 - `mb_crc16()` implements the Modbus serial-line CRC-16 with low-byte-first wire order.
 - `modbus_tcp.c` handles lwIP TCP callbacks, fragmented/coalesced stream data, client slots, and response transmission.
@@ -195,6 +197,18 @@ Behavior:
 - broadcast reads, frames for another slave, invalid CRC frames, and invalid RTU lengths are silently ignored
 - normal and exception responses include a newly generated low-byte-first CRC
 - no dynamic allocation is used
+
+### Portable RTU master request and response core
+
+The separate master core builds complete FC01, FC02, FC03, FC04, FC05, FC06,
+FC0F, and FC10 request ADUs and validates one complete response against the
+original request descriptor. It checks CRC, address, function, byte count,
+packed-bit padding, write acknowledgements, and Modbus exception responses.
+
+The complete-frame master core intentionally does not own UART framing,
+response timeouts, retries, STM32 HAL integration, or RS-485 direction control.
+See [`docs/modbus-rtu-master-core.md`](docs/modbus-rtu-master-core.md) for the
+public contract, examples, limits, validation rules, and next-stage boundary.
 
 The byte/timing API adds single-byte receive events, a fixed 50 microsecond tick, T1.5/T3.5 frame detection, two-buffer ownership, overflow recovery, and main-loop transmission. See [`docs/modbus-rtu-timing.md`](docs/modbus-rtu-timing.md) for the complete contract and STM32 integration boundary.
 
