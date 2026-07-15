@@ -56,3 +56,19 @@ The portable RTU byte-receive/timing state machine, fixed 50 microsecond tick AP
 A final STM32 firmware ELF/BIN/HEX cannot be produced without board-specific STM32CubeMX output for the selected MCU and board, including startup code, linker script, HAL/CMSIS, Ethernet MAC/PHY configuration, UART configuration, and generated lwIP port files.
 
 Integration and current RTU scope are documented in `README.md`, `docs/modbus-rtu-core.md`, `docs/modbus-rtu-timing.md`, and `Examples/stm32_cube_main.c`.
+
+## External STM32F767 hardware validation
+
+The portable Modbus RTU slave was integrated into an STM32F767IGTx
+CubeMX/Keil project and tested on physical hardware using USART3 at
+115200 baud, 8N1.
+
+All supported RTU slave function codes were demonstrated successfully:
+FC01, FC02, FC03, FC04, FC05, FC06, FC0F, and FC10.
+
+Long-duration FC03 and FC10 stress testing completed without RTU processing,
+buffering, or transmission errors after an unstable PC USB serial connection
+was identified and corrected.
+
+See [`docs/stm32f767-rtu-validation.md`](docs/stm32f767-rtu-validation.md)
+for the detailed external validation record.
