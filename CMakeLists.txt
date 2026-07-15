@@ -14,6 +14,7 @@ add_library(modbus_tcp_core STATIC
     App/src/modbus_protocol.c
     App/src/modbus_crc16.c
     App/src/modbus_rtu.c
+    App/src/modbus_rtu_master.c
 )
 target_include_directories(modbus_tcp_core PUBLIC App/include)
 
@@ -28,6 +29,9 @@ target_link_libraries(modbus_pdu_tests PRIVATE modbus_tcp_core)
 
 add_executable(modbus_rtu_tests Tests/host/test_modbus_rtu.c)
 target_link_libraries(modbus_rtu_tests PRIVATE modbus_tcp_core)
+
+add_executable(modbus_rtu_master_tests Tests/host/test_modbus_rtu_master.c)
+target_link_libraries(modbus_rtu_master_tests PRIVATE modbus_tcp_core)
 
 add_executable(modbus_rtu_timing_tests Tests/host/test_modbus_rtu_timing.c)
 target_link_libraries(modbus_rtu_timing_tests PRIVATE modbus_tcp_core)
@@ -55,6 +59,7 @@ enable_testing()
 add_test(NAME crc16 COMMAND modbus_crc16_tests)
 add_test(NAME pdu COMMAND modbus_pdu_tests)
 add_test(NAME rtu COMMAND modbus_rtu_tests)
+add_test(NAME rtu_master COMMAND modbus_rtu_master_tests)
 add_test(NAME rtu_timing COMMAND modbus_rtu_timing_tests)
 add_test(NAME protocol COMMAND modbus_protocol_tests)
 add_test(NAME register_map COMMAND register_selftest)

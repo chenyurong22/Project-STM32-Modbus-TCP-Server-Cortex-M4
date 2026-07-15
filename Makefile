@@ -11,12 +11,14 @@ CORE_SOURCES := \
   App/src/modbus.c \
   App/src/modbus_protocol.c \
   App/src/modbus_crc16.c \
-  App/src/modbus_rtu.c
+  App/src/modbus_rtu.c \
+  App/src/modbus_rtu_master.c
 CORE_OBJECTS := $(CORE_SOURCES:%.c=$(BUILD)/%.o)
 LIBRARY := $(BUILD)/libmodbus_tcp_core.a
 CRC_TEST := $(BUILD)/modbus_crc16_tests
 PDU_TEST := $(BUILD)/modbus_pdu_tests
 RTU_TEST := $(BUILD)/modbus_rtu_tests
+RTU_MASTER_TEST := $(BUILD)/modbus_rtu_master_tests
 RTU_TIMING_TEST := $(BUILD)/modbus_rtu_timing_tests
 PROTOCOL_TEST := $(BUILD)/modbus_protocol_tests
 SELFTEST := $(BUILD)/register_selftest
@@ -32,7 +34,7 @@ all: library demo compile-check unit-tests
 help:
 	@printf '%s\n' \
 	  'make              Build the portable library, tests, demo server, and lwIP compile checks' \
-	  'make test         Run CRC, PDU, RTU ADU/timing, TCP, register, and socket tests' \
+	  'make test         Run CRC, PDU, RTU slave/master ADU/timing, TCP, register, and socket tests' \
 	  'make ci           Clean and run the complete verification suite' \
 	  'make stm32-help   Show CubeMX integration instructions' \
 	  'make clean        Remove generated build files'
@@ -43,7 +45,8 @@ demo: $(POSIX_SERVER)
 
 compile-check: $(LWIP_CHECK_OBJECTS)
 
-unit-tests: $(CRC_TEST) $(PDU_TEST) $(RTU_TEST) $(RTU_TIMING_TEST) $(PROTOCOL_TEST) $(SELFTEST)
+unit-tests: $(CRC_TEST) $(PDU_TEST) $(RTU_TEST) $(RTU_MASTER_TEST) \
+	$(RTU_TIMING_TEST) $(PROTOCOL_TEST) $(SELFTEST)
 
 $(BUILD)/%.o: %.c
 	@mkdir -p $(dir $@)
@@ -62,6 +65,10 @@ $(PDU_TEST): Tests/host/test_modbus_pdu.c $(CORE_SOURCES)
 	$(CC) $(CPPFLAGS) $(CFLAGS) $^ $(LDFLAGS) -o $@
 
 $(RTU_TEST): Tests/host/test_modbus_rtu.c $(CORE_SOURCES)
+	@mkdir -p $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $^ $(LDFLAGS) -o $@
+
+$(RTU_MASTER_TEST): Tests/host/test_modbus_rtu_master.c $(CORE_SOURCES)
 	@mkdir -p $(dir $@)
 	$(CC) $(CPPFLAGS) $(CFLAGS) $^ $(LDFLAGS) -o $@
 
@@ -93,6 +100,7 @@ test: all
 	$(CRC_TEST)
 	$(PDU_TEST)
 	$(RTU_TEST)
+	$(RTU_MASTER_TEST)
 	$(RTU_TIMING_TEST)
 	$(PROTOCOL_TEST)
 	$(SELFTEST)

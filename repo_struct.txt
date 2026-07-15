@@ -7,6 +7,7 @@ stm32-modbus-tcp-server/
 │   │   ├── modbus_protocol.h
 │   │   ├── modbus_crc16.h
 │   │   ├── modbus_rtu.h
+│   │   ├── modbus_rtu_master.h
 │   │   ├── modbus_tcp.h
 │   │   └── platform_port.h
 │   └── src/
@@ -14,6 +15,7 @@ stm32-modbus-tcp-server/
 │       ├── modbus_protocol.c
 │       ├── modbus_crc16.c
 │       ├── modbus_rtu.c
+│       ├── modbus_rtu_master.c
 │       ├── modbus_tcp.c
 │       └── platform_stm32.c
 ├── Examples/
@@ -26,6 +28,7 @@ stm32-modbus-tcp-server/
 ├── docs/
 │   ├── images/
 │   ├── modbus-rtu-core.md
+│   ├── modbus-rtu-master-core.md
 │   └── modbus-rtu-timing.md
 ├── tools/
 ├── CMakeLists.txt
