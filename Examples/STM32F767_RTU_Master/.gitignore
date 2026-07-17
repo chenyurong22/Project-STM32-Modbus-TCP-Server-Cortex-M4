@@ -1,0 +1,16 @@
+# Keil per-user and generated build output
+MDK-ARM/*.uvoptx
+MDK-ARM/*.uvguix.*
+MDK-ARM/Objects/
+MDK-ARM/Listings/
+MDK-ARM/*.axf
+MDK-ARM/*.hex
+MDK-ARM/*.map
+MDK-ARM/*.htm
+MDK-ARM/*.build_log.htm
+MDK-ARM/*.dep
+MDK-ARM/*.lnp
+MDK-ARM/*.sct
+MDK-ARM/*.crf
+MDK-ARM/*.d
+MDK-ARM/*.o

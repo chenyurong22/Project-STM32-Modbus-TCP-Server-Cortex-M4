@@ -1,0 +1,5 @@
+# STM32Cube, Keil and vendor files preserve generated/upstream whitespace.
+CAN.ioc -whitespace
+Core/** -whitespace
+Drivers/** -whitespace
+MDK-ARM/** -whitespace

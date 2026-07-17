@@ -86,7 +86,8 @@ App/
 
 Examples/
 ├── posix_server.c            Local functional demo
-└── stm32_cube_main.c         CubeMX integration reference
+├── stm32_cube_main.c         CubeMX integration reference
+└── STM32F767_RTU_Master/    Externally validated STM32F767 RTU master example
 
 Tests/
 ├── host/                     Unit and socket-level tests
