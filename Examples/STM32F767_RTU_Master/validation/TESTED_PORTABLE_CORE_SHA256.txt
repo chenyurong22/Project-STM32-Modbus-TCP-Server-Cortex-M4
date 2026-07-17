@@ -1,0 +1,16 @@
+# Raw SHA-256 values from the exact externally tested Keil archive.
+# Scope: portable files relevant to the RTU master target after removing
+# the unrelated TCP/lwIP platform helper from the clean GitHub example.
+# Use verify_tested_core.py for cross-platform source-content verification.
+ced1000713cef1d427b96bc529c423295e64946ec5b2e8e38647c2724ae7e104  include/modbus.h
+b668cb0303ef37336a372e3e277e9a54c5c4583ef92b462e2a3e36026fa52f45  include/modbus_crc16.h
+82642750a647a8a00bede20c4395fc53abc2d0f203ed196a10f050462a149f77  include/modbus_pdu.h
+434138ce43041d015e90f6088ec6ce3940190d71dfb889c1cf0859447271265b  include/modbus_protocol.h
+14eacb8f902454a7033b8eaf7f0d5bf2c3048523a6e720be305913233e7d0e71  include/modbus_rtu.h
+3ecc4c2da1717b8357d64a41e50c7fba1998b0dc58c07eb25067190d7c749f27  include/modbus_rtu_master.h
+164f8211b95d4e596b500d07105229b67b8504288b9ab200b84b0f5a211da45d  include/platform_port.h
+d7c410cfc17be391a6be14e59a4a28d4dd1f9289f64845bc0efa4976307b7959  src/modbus.c
+6086d09c6eaec3d5ef55af34a9b34bd95a83a44ac76afbdc05e1c7f7982d2138  src/modbus_crc16.c
+cfbd1b4c1ac41c871ebcb9fa83b933de17fa30323d08cbc72b5cb4040de4a9c5  src/modbus_protocol.c
+ddeb44f762f83da8698f35d1ac6001f9e47e09f619671389f2202d7cc35db058  src/modbus_rtu.c
+1f504fbbbf5b14f125f6eb5c0de7418d74d486c1f4a4472b4f619e17257565a2  src/modbus_rtu_master.c

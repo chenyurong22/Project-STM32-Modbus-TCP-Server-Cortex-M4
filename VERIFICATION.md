@@ -91,3 +91,53 @@ was identified and corrected.
 
 See [`docs/stm32f767-rtu-validation.md`](docs/stm32f767-rtu-validation.md)
 for the detailed external validation record.
+
+## External STM32F767 RTU master validation
+
+On 2026-07-17, the portable Modbus RTU master core was externally tested on an
+STM32F767IGTx using a bare-metal STM32Cube/Keil project.
+
+Validated configuration:
+
+- Keil µVision 5.41.0.0
+- ArmClang 6.22
+- operating system: none
+- USART3
+- PB10 TX and PB11 RX
+- 115200 baud, 8 data bits, no parity, 1 stop bit
+- Modbus RTU slave address 1
+- FC03 Read Holding Registers
+- starting address 0
+- quantity 5
+
+The controlled run recorded 1,002 requests and 1,002 valid responses with:
+
+- zero timeouts
+- zero transmit errors
+- zero response/protocol errors
+- zero exception responses
+- zero invalid RTU gap frames
+- zero receive-buffer overflow frames
+- zero completed-frame overruns
+- zero unexpected bytes
+- zero UART errors
+
+A later capture showed 1,108 requests and 1,108 valid responses with the same
+zero-error counters. The Keil rebuild completed with zero errors and zero
+warnings.
+
+The external tester confirmed that the supplied project was compiled and tested
+without source-code or project-setting modifications.
+
+This validation covers the portable FC03 request/response core and the
+STM32F767 USART3 bare-metal adapter over 3.3 V TTL UART. It does not validate a
+physical RS-485 transceiver, DE/RE direction control, multidrop operation, or
+electrical-noise performance.
+
+The cleaned repository example is located at
+`Examples/STM32F767_RTU_Master/`. Its Keil target references the canonical
+portable sources in `App/`. The unrelated TCP/lwIP
+`App/src/platform_stm32.c` is intentionally excluded from the bare-metal RTU
+target. The validation directory contains the test record, selected evidence,
+the tested-source checksum manifest, and a line-ending-independent verification
+script.
