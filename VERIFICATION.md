@@ -1,6 +1,6 @@
 # Verification report
 
-Verification performed on 2026-07-15.
+Verification performed on 2026-07-19.
 
 ## Successful checks
 
@@ -14,11 +14,12 @@ Verification performed on 2026-07-15.
 | Shared PDU unit tests | Pass |
 | Modbus RTU ADU tests | Pass |
 | Modbus RTU master request/response tests | Pass |
+| Modbus RTU master transaction-state tests | Pass |
 | Modbus RTU 50 us timing/state tests | Pass |
 | Modbus TCP ADU regression tests | Pass |
 | POSIX TCP integration smoke test | Pass |
 | lwIP transport compile check | Pass |
-| CMake configure/build/CTest (7 tests) | Pass |
+| CMake configure/build/CTest (8 tests) | Pass |
 | SVG XML validation and PNG rendering | Pass |
 
 The strict warning set is:
@@ -66,15 +67,37 @@ The host RTU master suite verifies:
 - zero-copy bit and register decoding with index validation
 - malformed response and API argument rejection
 
+## RTU master transaction coverage
+
+The host transaction suite verifies:
+
+- initialization, configuration, and uninitialized-context guards
+- consistency between the request descriptor and complete request ADU
+- request address, function, length, and CRC validation before transmission
+- transaction-owned immutable copies of the request descriptor and ADU
+- asynchronous transmit acceptance, completion, and failure events
+- one-outstanding-request and busy-state enforcement
+- wrap-safe response deadlines and late-response rejection
+- configurable retry counts and retry delays
+- poll-driven zero-delay retries without recursive retransmission
+- retry success and retry-exhaustion results
+- optional retry of transport failures
+- broadcast completion after successful transmission without response waiting
+- valid Modbus exception completion without automatic retry
+- malformed-response, unrelated-response, and response-error accounting
+- cancellation and tick-counter wraparound behavior
+
 ## Scope
 
-The shared Modbus PDU core, backward-compatible TCP ADU wrapper, portable CRC-16 implementation, complete-frame RTU slave ADU wrapper, portable complete-frame RTU master request/response core, host demonstration, tests, and lwIP-facing application sources are verified.
+The shared Modbus PDU core, backward-compatible TCP ADU wrapper, portable CRC-16 implementation, complete-frame RTU slave ADU wrapper, portable complete-frame RTU master request/response core, portable RTU master transaction engine, host demonstration, tests, and lwIP-facing application sources are verified.
 
 The portable RTU byte-receive/timing state machine, fixed 50 microsecond tick API, T1.5/T3.5 frame detection, buffering, and recovery are host verified. The STM32 UART/timer adapter and physical hardware validation remain outside this stage.
 
 A final STM32 firmware ELF/BIN/HEX cannot be produced without board-specific STM32CubeMX output for the selected MCU and board, including startup code, linker script, HAL/CMSIS, Ethernet MAC/PHY configuration, UART configuration, and generated lwIP port files.
 
-Integration and current RTU scope are documented in `README.md`, `docs/modbus-rtu-core.md`, `docs/modbus-rtu-master-core.md`, `docs/modbus-rtu-timing.md`, and `Examples/stm32_cube_main.c`.
+Integration and current RTU scope are documented in `README.md`, `docs/modbus-rtu-core.md`, `docs/modbus-rtu-master-core.md`, `docs/modbus-rtu-master-transaction.md`, `docs/modbus-rtu-timing.md`, and `Examples/stm32_cube_main.c`.
+
+The transaction engine is host verified. It has not yet been integrated into or hardware-validated with the externally tested STM32F767 example.
 
 ## External STM32F767 hardware validation
 

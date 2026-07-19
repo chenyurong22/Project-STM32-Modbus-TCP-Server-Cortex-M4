@@ -4,9 +4,9 @@
 
 # STM32 Modbus TCP Server for Cortex‑M4
 
-A compact Modbus implementation written in portable C11, with an STM32/lwIP raw-API TCP transport, host-tested Modbus RTU slave and master ADU cores, a deterministic in-memory register map, strict request validation, and no heap allocation in the request path.
+A compact Modbus implementation written in portable C11, with an STM32/lwIP raw-API TCP transport, host-tested Modbus RTU slave and master ADU cores, a portable RTU master transaction engine with deterministic timeouts and retries, a deterministic in-memory register map, strict request validation, and no heap allocation in the request path.
 
-The repository builds and tests on a normal Linux/macOS development machine. The RTU slave layer validates complete frames, provides single-byte receive and fixed 50 microsecond timing entry points, detects T1.5/T3.5 boundaries, and reuses the same PDU engine as TCP. The separate RTU master core builds complete requests and validates complete responses without depending on UART, timeout, retry, or RS-485 hardware. Board-specific UART/timer glue and CubeMX integration remain separate.
+The repository builds and tests on a normal Linux/macOS development machine. The RTU slave layer validates complete frames, provides single-byte receive and fixed 50 microsecond timing entry points, detects T1.5/T3.5 boundaries, and reuses the same PDU engine as TCP. The separate RTU master core builds complete requests and validates complete responses without depending on hardware. The portable master transaction engine adds one-outstanding-request state management, response deadlines, retry delays, transport-completion/error events, broadcast completion, and bounded diagnostics. UART receive framing, board-specific UART/timer glue, RS-485 direction control, and CubeMX integration remain separate.
 
 ## Build status
 
@@ -23,6 +23,7 @@ make test
 - direct C unit tests for the shared Modbus PDU engine
 - host tests for the Modbus RTU ADU wrapper, addressing, CRC, and broadcasts
 - host tests for RTU master request builders, response validation, exceptions, and decoding
+- host tests for RTU master transaction state, deadlines, retries, transport events, broadcast handling, and diagnostics
 - fake-timer tests for T1.5/T3.5, buffering, overflow, recovery, and transmit dispatch
 - C unit tests for the register map and Modbus TCP ADU wrapper
 - the on-device register self-test as a host executable
@@ -43,6 +44,7 @@ The design separates the shared PDU engine from transport framing and network I/
 - `mbtcp_process_adu()` validates MBAP fields, invokes the shared PDU API, and builds the Modbus TCP response ADU.
 - `mbrtu_process_adu()` validates the RTU address and CRC, applies broadcast rules, invokes the same PDU API, and builds the RTU response ADU.
 - `mbrtum_build_*_request()` creates complete RTU master requests, while `mbrtum_process_response()` validates matching complete responses and Modbus exceptions.
+- `mbrtum_transaction_*()` owns one active request, drives asynchronous transmit/wait/retry states, enforces wrap-safe deadlines, reuses the complete-frame master validator, and exposes bounded diagnostics.
 - `mbrtu_on_rx_byte_isr()` and `mbrtu_on_50us_tick_isr()` assemble frames with minimal interrupt work; `mbrtu_poll()` processes and transmits them from the main loop.
 - `mb_crc16()` implements the Modbus serial-line CRC-16 with low-byte-first wire order.
 - `modbus_tcp.c` handles lwIP TCP callbacks, fragmented/coalesced stream data, client slots, and response transmission.
@@ -74,6 +76,9 @@ App/
 │   ├── modbus_protocol.h     Backward-compatible Modbus TCP ADU API
 │   ├── modbus_crc16.h        Portable Modbus serial CRC-16 API
 │   ├── modbus_rtu.h          RTU ADU plus byte/timing server API
+│   ├── modbus_rtu_master.h   Complete-frame RTU master API
+│   ├── modbus_rtu_master_transaction.h
+│   │                          Portable master timeout/retry transaction API
 │   ├── modbus_tcp.h          lwIP server API
 │   └── platform_port.h       Compile-time configuration
 └── src/
@@ -81,6 +86,9 @@ App/
     ├── modbus_protocol.c     Shared PDU engine and TCP ADU wrapper
     ├── modbus_crc16.c        Table-free Modbus CRC-16 implementation
     ├── modbus_rtu.c          RTU ADU and bare-metal timing state machine
+    ├── modbus_rtu_master.c   Complete-frame RTU master core
+    ├── modbus_rtu_master_transaction.c
+    │                          Portable master transaction state machine
     ├── modbus_tcp.c          lwIP raw-API transport
     └── platform_stm32.c      HAL tick and optional RTOS locking
 
@@ -90,9 +98,16 @@ Examples/
 └── STM32F767_RTU_Master/    Externally validated STM32F767 RTU master example
 
 Tests/
-├── host/                     Unit and socket-level tests
+├── host/                     Unit, transaction, and socket-level tests
 ├── mocks/lwip/               Compile-check headers only
 └── stm32/                    Register-map self-test for a target board
+
+docs/
+├── modbus-rtu-core.md
+├── modbus-rtu-master-core.md
+├── modbus-rtu-master-transaction.md
+├── modbus-rtu-timing.md
+└── stm32f767-rtu-validation.md
 ```
 
 ## Quick start on a development machine
@@ -111,6 +126,8 @@ Expected result:
 modbus CRC-16 tests: PASS
 modbus PDU tests: PASS
 modbus RTU ADU tests: PASS
+modbus RTU master tests: PASS
+modbus RTU master transaction tests: PASS
 modbus RTU timing tests: PASS
 modbus protocol tests: PASS
 Modbus SelfTest: total=5, passed=5, failed=0, first_err=0
